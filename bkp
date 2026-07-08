@@ -1,350 +1,75 @@
-import time
+    """Fake class"""
+    resolution = (0, 0)
+    options = {}
+    camera_properties = {"ScalerCropMaximum" : 1}
 
-from picamera2.encoders import H264Encoder
-from picamera2.outputs import FileOutput
-
-from src.services.ServiceAbstract import ServiceAbstract
-from src.services.system.GateService import GateService
-from src.services.system.DirectorySampleService import DirectorySampleService
-from src.services.PatternService import PatternService, SOBEL_THRESHOLD, MATCH_THRESHOLD
-from src.services.LogService import LogService as Log
-from src.config.Configuration import Configuration as config
-
-class RunSampleService (ServiceAbstract):
-    def __init__(self, caller, conveyor):
-        self.conveyorService = conveyor
-        self.globalConfig = config().configSocket
-        self.caller = caller
-
-        self.interrupt = False
-        self.directorySampleService = DirectorySampleService()
-
-        self.patternService = PatternService(camera=self.caller)
-
-        self.gateService = GateService()
-        self.optionExecute = 'perTime'
-
-    def execute(self, sample_id, class_id, options):
-
-        self.interrupt == False
-
-        if self.optionExecute == 'perTime' :
-            Log('Process send everything perTime {0}'.format(time.strftime('%Y%m%d %H-%M-%S')))
-            return self.executePerTime(sample_id, class_id, options)
-        else :
-            Log('Process send everything perTrack {0}'.format(time.strftime('%Y%m%d %H-%M-%S')))
-            return self.executeTrack(sample_id, class_id, options)
-
-    def executeTrack(self, sample_id, class_id, options):
-
-        self.interrupt = False
-        self.sample_id = sample_id
-        self.class_id = class_id
-
-        encoder = H264Encoder(10000000)
-        output = FileOutput("/dev/null")
-
-        samplesCount = 0
-        timeConveyor = 0.5
-        timeConveyorTotal = 4
-        timeConveyorTotalCount = 0
-        samplesLimit = config().photosSendingConfig['maxSendingSamples']
-        maxDuration = float(options.get('trackDuration', 30))
-        sobelThreshold = int(options.get('sobelThreshold', SOBEL_THRESHOLD))
-        matchThreshold = float(options.get('matchThreshold', MATCH_THRESHOLD))
-        startTime = time.time()
-        frameIdx = 0
-        objectCaptured = False
-
-        Log('Start sending process {0}'.format(time.strftime('%Y%m%d %H-%M-%S')))
-
-        self.patternService.reset()
-        self.caller.start_recording(encoder, output, name='main')
-
-        try:
-            while (
-                time.time() - startTime < maxDuration
-                and samplesCount < samplesLimit
-                and self.interrupt == False
-            ):
-                frame = self.caller.capture_array()
-
-                detection = self.patternService.process_frame(
-                    frame,
-                    sobel_threshold=sobelThreshold,
-                    match_threshold=matchThreshold,
-                    frame_idx=frameIdx
-                )
-
-                if detection['event'] == 'pattern_saved':
-                    Log('Padrao salvo no ROI inicial')
-
-                if detection['should_capture'] and objectCaptured == False or timeConveyorTotalCount >= timeConveyorTotal:
-                    Log('Padrao detectado no ROI final - similaridade {0:.2%}'.format(
-                        detection['similarity']
-                    ))
-
-                    if self.takePhoto(checkGrains=False):
-                        samplesCount += 1
-                        objectCaptured = True
-                        Log('Imagem Capturada {0}/{2} - {1}'.format(
-                                samplesCount,
-                                time.strftime('%Y%m%d'),
-                                samplesLimit
-                            )
-                        )
-
-                    timeConveyorTotalCount = 0
-
-                elif objectCaptured and self.patternService.pattern_in_final == False:
-                    self.patternService.reset()
-                    objectCaptured = False
-
-                print('RunSample -> Moving...')
-                self.conveyorService.start()
-                time.sleep(timeConveyor)
-                self.conveyorService.stop()
-                timeConveyorTotalCount = timeConveyorTotalCount + timeConveyor
-
-                frameIdx += 1
-        finally:
-            stopRecording = getattr(self.caller, 'stop_recording', None)
-            if stopRecording:
-                stopRecording()
-            elif hasattr(self.caller, 'cam'):
-                self.caller.cam.stop_recording()
-
-            stopCamera = getattr(self.caller, 'stop', None)
-            if stopCamera:
-                stopCamera()
-            elif hasattr(self.caller, 'cam'):
-                self.caller.cam.stop()
-
-        folderPath = self.directorySampleService.getFolderPicture(self.sample_id)
-        sampleDirectory = self.directorySampleService.decodeFolderName(folderPath)
-        self.directorySampleService.updFolderStatusNotSend(sampleDirectory)
-
-        Log('Process send everything {0}'.format(time.strftime('%Y%m%d %H-%M-%S')))
-
-        return samplesCount
-
-    def executePerTime(self, sample_id, class_id, options):
-
-        self.interrupt == False
-
-        if 'samplesTimeConveyor' in options :
-            timeConveyor = float(options['samplesTimeConveyor'])
-        else :
-            timeConveyor = 3.1
-
-        samplesCount = 0
-        samplesIsValid = True
-        samplesLimit = config().photosSendingConfig['maxSendingSamples']
-
-        Log('Start sending process {0}'.format(time.strftime('%Y%m%d %H-%M-%S')))
-
-        self.sample_id = sample_id
-        self.class_id = class_id
-
-        while samplesIsValid and samplesCount < samplesLimit and self.interrupt == False :
-            if self.runOneSample(timeConveyor, samplesCount) :
-                Log('Imagem Capturada {0}/{2} - {1}'.format(
-                        samplesCount,
-                        time.strftime('%Y%m%d'),
-                        samplesLimit
-                    )
-                )
-                break
-
-        folderPath = self.directorySampleService.getFolderPicture(self.sample_id)
-        sampleDirectory = self.directorySampleService.decodeFolderName(folderPath)
-        self.directorySampleService.updFolderStatusNotSend(sampleDirectory)
-
-        Log('Process send everything {0}'.format(time.strftime('%Y%m%d %H-%M-%S')))
-
-        return samplesCount
-
-    def loop (self, timeConveyor, samplesCount) :
+    def __init__(self, sensor_mode=0, resolution=None):
+        self.video = cv2.VideoCapture('etc/sample_simulation.mp4')
         pass
 
-    def takePhoto (self, checkGrains=False) :
-        dataCamera = self.caller.take_picture(checkGrains)
-        print(dataCamera)
-        if dataCamera == False :
-            return False
+    def __enter__(self):
+        return self
 
-        self.directorySampleService.savePictureInFolder(
-            dataCamera['data'],
-            dataCamera['metadata'],
-            self.sample_id
-        )
-
-    def runOneSample (self, timeConveyor, samplesCount) :
-        self.gateService.open()
-        self.conveyorService.start()
-        time.sleep(timeConveyor)
-        self.conveyorService.stop()
-        Log('Preparando foto')
-        time.sleep(0.3)
-
-        checkGrains = True
-
-        if samplesCount > 0 and samplesCount <= 7 :
-            checkGrains = False
-
-        #TODO remove befor commit
-        # checkGrains = False
-
-        self.takePhoto()
-
-        samplesCount = samplesCount + 1
-
-        self.gateService.close()
-        Log('Stored {0}'.format(samplesCount))
-        return True
-
-    def cancel(self):
-        self.interrupt = True
-
-
-======================================
-
-# class GPIO(object):
-#     """Fake class"""
-#     Class made for emulate GPIO in local enviroment
-
-BOARD = 1
-OUT = 1
-
-def foward(self):
-    print('Fowarding conveyor')
-
-def backwards():
-    print('backing conveyor')
-
-def setmode(data):
-    print('Setting setmode {0}'.format(data))
-
-def output(data, valid):
-    print('Setting output {0}'.format(data))
-
-def setup(data, pin):
-    print('Setting setup {0}'.format(data))
-
-def cleanup():
-    print('Setting cleanup')
-
-def setwarnings(data):
-    print('Setting warnings {0}'.format(data))
-
-=====
-import io
-import subprocess
-import cv2 as cv
-import numpy as np
-
-from src.config.Configuration import Configuration as config
-
-# try:
-#    from picamera2 import Picamera2
-# except:
-#     from src.helpers.Picamera2Fake import Picamera2
-
-from src.helpers.Picamera2Fake import Picamera2
-
-class CameraService():
-    def __init__(self, config = None):
-        self.cancelPostFileInChunks = False
-        self.configCamera()
-
-    def configCamera(self):
-        self.cam = Picamera2()
-        self.capture_config = self.cam.create_still_configuration(
-            main={"size": (4608, 2592)},
-            lores={"format": "RGB888", "size": (1920, 1080)}
-        )
-        self.cam.options['quality'] = 100
-        self.cam.configure(self.capture_config)
-        self.cam.start()
-        self.configCam = config().cameraControlConfig
-        self.cam.set_controls(self.configCam)
+    def set_controls(self, data):
         pass
 
-    def configOldCamera(self):
+    def create_still_configuration(self, main, lores=None):
+        return {"main": main, "lores": lores}
+
+    def configure(self, config):
         pass
 
-    def decode_image(self, data):
-        data.seek(0)
-        file_bytes = np.asarray(bytearray(data.read()), dtype=np.uint8)
-        decoded_image = cv.imdecode(file_bytes, cv.IMREAD_COLOR)
-        return decoded_image
-
-    def encode_image(self, image):
-        _, im_buf_arr = cv.imencode(".jpg", image)
-        data = io.BytesIO(im_buf_arr)
-        return data
-
-    def cut_image(self, image):
-        LEFT_SIDE_LIMIT, RIGHT_SIDE_LIMIT = 215, 3750
-        UP_SIDE_LIMIT, DOWN_SIDE_LIMIT = 120, 2350
-        return image[UP_SIDE_LIMIT:DOWN_SIDE_LIMIT, LEFT_SIDE_LIMIT:RIGHT_SIDE_LIMIT]
-
-    def resize_image(self, image):
-        h, w, d = image.shape
-        resized_img = cv.resize(image, (w//2, h//2))
-        return resized_img
-
-    def segmentation(self, image):
-        hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
-        hsv_image = cv.medianBlur(hsv_image,11)
-        mask = cv.inRange(hsv_image, (105, 0, 120), (125, 255, 255))
-        mask = cv.bitwise_not(mask)
-        mask = cv.morphologyEx(mask, cv.MORPH_OPEN, np.ones((15,15), np.uint8))
-        countPixels = cv.countNonZero(mask)
-        if countPixels >= 20000: return True
-        return False
-
-    def start_recording(self, encoding, output, name='main'):
-        return self.cam.start_recording(encoding, output, name=name)
-
-    def stop_recording(self):
-        return self.cam.stop_recording()
+    def start(self):
+        pass
 
     def stop(self):
-        return self.cam.stop()
+        pass
 
-    def capture_array(self, name='main'):
-        return self.cam.capture_array(name)
+    def start_recording(self, encoder, output, name='main'):
+        pass
 
-    def take_picture(self, checkGrains = True) -> io.BytesIO:
-        data = io.BytesIO()
-        self.cam.capture_file(data, name='main', format='jpeg')
+    def stop_recording(self):
+        pass
 
-        image = self.decode_image(data)
-        cutted_image = self.cut_image(image)
+    def take_picture(self):
+        pass
 
-        if checkGrains:
-            resized_image = self.resize_image(cutted_image)
-            hasGrains = self.segmentation(resized_image)
-            if hasGrains == False:
-                return False
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
 
-        data = self.encode_image(cutted_image)
-        metadata = self.cam.capture_metadata()
-        return {'data' : data, 'metadata' : metadata}
+    def close(self):
+        # this does nothing
+        pass
 
-    def system_exec_init(self, initLevel : int) -> None:
-        subprocess.call(['init', str(initLevel)])
+    def capture_metadata(self):
+        return {'fake' : True}
 
-    def get_trace(self, e : BaseException) -> list:
-        trace = []
-        tb = e.__traceback__
-        while tb is not None:
-            trace.append('{0}:{1}'.format(tb.tb_frame.f_code.co_filename, tb.tb_lineno))
-            tb = tb.tb_next
+    def capture_array(self, name="main"):
+        ok, frame = self.video.read()
 
-        return trace
+        if not ok:
+            self.video.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ok, frame = self.video.read()
 
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        size = (1920, 1080) if name == "lores" else (4608, 2592)
+        return cv2.resize(frame, size)
 
+    def capture_file(self, output, name='main', format=None):
+        filepath = 'etc/grains_sample-small.jpg'
+        originalImg = open(filepath, 'rb')
+        with tempfile.NamedTemporaryFile() as tmp:
+            print(tmp.name)
+            tmp.write(originalImg.read())
+            img = self.writeText(Image.open(tmp.name))
+            byte_io = BytesIO()
+            img.save(byte_io, 'PNG')
+            output.write(byte_io.getvalue())
+        return output
 
-
+    def writeText(self, img):
+        timestamp = time.time()
+        font = ImageFont.truetype('etc/arial.ttf', 12)
+        draw = ImageDraw.Draw(img)
+        draw.text((img.width/2,img.height/2), '-> {0}'.format(timestamp), font=font)
+        return img
